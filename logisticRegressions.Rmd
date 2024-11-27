@@ -1,0 +1,462 @@
+---
+title: "Regressions logistiques"
+author: "Brittany Curry-Sharples"
+date: "2024-11-27"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+    toc_depth: 6
+---
+## Code
+###### Setup
+```{r setup, message=FALSE}
+
+library(tidyverse)
+```
+###### Import Data
+```{r import data, message=FALSE}
+
+dataFolder <- './data'                      # sets path to data in r project 
+
+originalFileNames <- list.files(
+  path = dataFolder,                        # store all file names in data
+  pattern = '\\.csv',                       # folder in a list
+  full.names = TRUE)
+
+listNewFileNames <- list()                  # empty list to store new file names
+
+for (file in originalFileNames) {
+  
+  dataTemp <- read_csv(file)                # import data sets
+  
+  originalName <- file %>%
+    basename() %>%                          # get file name
+    str_remove('\\.csv') 
+  
+  year <- originalName %>% 
+    str_extract('\\d{4}([-_]\\d{4})?') %>% # matches year or year range
+    str_replace('[-_]', 'to')
+  
+  if (str_starts(originalName, 'Inuit')) {
+    newName <- str_c('dataNorth', year)
+  } else if (str_starts(originalName, 'Rest')) {
+    newName <- str_c('dataSouth', year)
+  } else {
+    newName <- originalName                 # if no match, default to original  
+  }                                         # name
+  
+  assign(newName, dataTemp)                # dynamically rename the data set
+  
+  listNewFileNames <- append(listNewFileNames, newName)
+}
+```
+###### Filter Data
+```{r filter data}
+
+variablesToRecode <- list(
+  tailleMenage     = c('DHHDGHSZ', 'DHHGHSZ', 'DHHEGHSZ', 'DHHCGHSZ'),
+  travaillerEmploi = c('MAC_010', 'GEN_08', 'GENE_08', 'GENC_08', 'GENA_08'),
+  santePhysique    = c('GEN_005', 'GEN_01', 'GENE_01', 'GENC_01', 'GENA_01'),
+  santeMental      = c('GEN_015', 'GEN_02B', 'GENE_02B', 'GENC_02B'),
+  appartCommun     = c('GEN_030', 'GEN_10', 'GENE_10', 'GENC_10', 'GENA_10'),
+  typeFumeur       = c('SMK_005', 'SMK_202', 'SMKE_202', 'SMKC_202', 
+                       'SMKA_202'),        
+  age              = c('DHHGAGE', 'DHHEGAGE', 'DHHCGAGE', 'DHHAGAGE'), 
+  typeBuveur       = c('ALCDVTTM', 'ALCDTTM', 'ALCEDTYP', 'ALCCDTYP', 
+                       'ALCADTYP'),      
+  activitePhys     = c('PAA_030', 'PACDLTI'), 
+  activiteSed      = c('SBE_005', 'SACDVTOT', 'SACDTOT', 'SACEDTOT', 'SACCDTOT',  
+                       'SACADTOT'),
+  satFinanciere    = c('SWL_015'),
+  satLogement      = c('SWL_040'),
+  relationGens     = c('SPS_050', 'SPS_10'),
+  santeNonSatis    = c('UCN_005', 'UCN_010'),
+  assuranceMed     = c('INS_005', 'INS_1'),
+  revenuMenage     = c('INCDGHH', 'INCGHH', 'INCEGHH', 'INCCGHH', 'INCAGHH'),
+  secAlimentaire   = c('FSCDVHF2', 'FSCDVHFS', 'FSCDHFS2', 'FSCDHFS', 
+                       'FSCEDHFS', 'FINCF1', 'FINAF1'),
+  poids            = c('WTS_M', 'WTSE_M', 'WTSC_M', 'WTSAM')
+)
+
+# filter data
+for (dataset in listNewFileNames) {
+  
+  currentDataset <- get(dataset)
+  
+  variablesToKeep <- c()
+  
+  for (variableList in variablesToRecode) {
+    for(variable in variableList) {
+      
+      if (variable %in% colnames(currentDataset)) {
+      
+      variablesToKeep <- append(variablesToKeep, variable)
+      }
+    }
+  }
+  
+  filteredDataset <- currentDataset %>% select(all_of(variablesToKeep))
+    
+  assign(dataset, filteredDataset)      # keeps standardized name
+}
+
+```
+###### Recode Variables
+```{r recode food (in)security variables}
+
+recode_rules <- list(
+  
+  FINAF1 = function(x) {
+    case_when(
+      x == 1 ~ 1,               # secure
+      x == 2 ~ 0,               # insecure
+      x == 9 ~ NA_integer_,     # ensure NA is of type int  
+      is.na(x) ~ NA_integer_,   # handle NA values explicitly
+      TRUE ~ as.integer(x)    # force other values to be characters
+    )
+  },
+  
+  FINCF1 = function(x) {
+    case_when(
+      x == 1 ~ 1,
+      x == 2 ~ 0,
+      x %in% c(6, 9) ~ NA_integer_,
+      is.na(x) ~ NA_integer_,  
+      TRUE ~ as.integer(x)
+    )
+  },
+  
+  FSCDHFS2 = function(x) {
+    case_when(
+      x == 0 ~ 1,
+      x %in% c(1, 2) ~ 0,
+      x %in% c(6, 9) ~ NA_integer_,
+      TRUE ~ as.integer(x)
+    )
+  },
+  
+  FSCDHFS = function(x) {
+    case_when(
+      x == 0 ~ 1,
+      x %in% c(1, 2, 3) ~ 0,
+      x == 9 ~ NA_integer_,
+      TRUE ~ as.integer(x)
+    )
+  },
+  
+  FSCDVHFS = function(x) {
+    case_when(
+      x == 0 ~ 1,
+      x %in% c(1, 2) ~ 0,
+      x %in% c(6, 9) ~ NA_integer_,
+      TRUE ~ as.integer(x)
+    )
+  },
+  
+  FSCDVHF2 = function(x) {
+    case_when(
+      x == 0 ~ 1,
+      x %in% c(1, 2, 3) ~ 0,
+      x %in% c(6, 9) ~ NA_integer_,
+      TRUE ~ as.integer(x)
+    )
+  },
+  
+  FSCEDHFS = function(x) {
+    case_when(
+      x == 0 ~ 1,
+      x %in% c(1, 2, 3) ~ 0,
+      x %in% c(6, 9) ~ NA_integer_,
+      TRUE ~ as.integer(x)
+    )
+  }
+)
+
+ # Identify the food security variables (secAlimentaire)
+  allFoodSecurityVariables <- variablesToRecode$secAlimentaire 
+
+# recode data
+for (dataset in listNewFileNames) {
+  
+  currentDataset <- get(dataset)
+  #cat("The current dataset is: ", dataset, "\n")
+  
+  # Identify which food security variable is present in the data set
+  foodSecurityVariables <- allFoodSecurityVariables[allFoodSecurityVariables 
+                                                    %in%
+                                                      colnames(currentDataset)]
+    
+    #cat("Food security variable found: ")
+    #print(foodSecurityVariables)
+    #cat("\n")
+    
+    for (variable in foodSecurityVariables) { # iterate through each FS var (if multiple)
+      
+      if (variable %in% names(currentDataset)) {
+        
+      recode_function <- recode_rules[[variable]] # apply recoding rule (see list)
+      
+      # Recode the food security variable
+      currentDataset <- currentDataset %>%
+        mutate(!!variable := recode_function(.[[variable]]))
+      
+      #cat("Recoded", variable, "in ")
+      #print(currentDataset) 
+      #cat("\n", "\n")
+        
+      }
+
+  assign(dataset, currentDataset)
+    }
+}
+
+```
+###### Rename Variables
+```{r rename variables}
+
+for (dataset in listNewFileNames) {
+  
+  currentDataset <- get(dataset)
+  #cat("\n", "\n")
+  #cat("Recoding variables in the dataset: ", dataset, "\n")
+  
+    for (variable in colnames(currentDataset)) {
+      
+      originalVariableName <- variable # save original variable name
+      
+      for (variableType in names(variablesToRecode)) {
+        if (originalVariableName %in% variablesToRecode[[variableType]]) {
+          
+          newVariableName <- str_c(variableType, '(', originalVariableName, ')')
+          
+          currentDataset <- currentDataset %>% 
+            rename(!!newVariableName := !!originalVariableName)
+          
+          # cat(variable, " ",  variableType, " ", newVariableName, "\n")
+          
+        }
+      }
+    }
+  assign(dataset, currentDataset)
+}
+```
+###### Logistic Regressions
+```{r logistic regressions, warning=TRUE}
+
+for (dataset in listNewFileNames) {
+  
+  currentDataset <- get(dataset)
+  datasetName    <- dataset
+  year           <- datasetName %>% 
+    str_extract('\\d{4}(to\\d{4})?')  # matches year or year range
+  region         <- datasetName %>% 
+    str_extract('(North|South)')
+  
+  #cat("\n", "\n")
+  cat("Logistic regression for ", dataset, "\n")
+  #cat("----------------------------------------------------", "\n")
+  #cat("\n")
+
+  varDep    <- c()
+  varsIndep <- c()
+  varPoids     <- c()
+  
+  for (variable in colnames(currentDataset)) {
+    
+    if (str_detect(variable, '^secAlimentaire')) {
+      varDep <- c(varDep, variable)
+      
+    } else if (str_detect(variable, '^poids')) {
+      varPoids <- c(varPoids, currentDataset[[variable]])
+      
+    } else if (length(unique(currentDataset[[variable]])) > 1) { # ensure variation
+      varsIndep <- c(varsIndep, variable)
+    }
+  }
+  #cat("The dependent variable(s) is(are):")
+  #cat(varDep, "\n", "\n")
+  #cat("The independent variables are:")
+  #cat(varsIndep, "\n")
+  #cat("the weight variable is: ")
+  #cat(varPoids, "\n")
+
+  if (length(varDep) > 1) {
+    
+    for (varFS in varDep) {
+      
+      # ensure the dependent variable is an integer
+      currentDataset <- currentDataset %>%
+        mutate(!!varFS := as.integer(.[[varFS]]))
+      
+      #cat('the dv is:', varFS)
+      #cat(str(varFS), '\n')
+      
+      cleanedVarDep <- varFS %>% 
+        str_remove('secAlimentaire') %>% 
+        as.character()
+      
+      modelName <- str_c('model', region, year, cleanedVarDep)
+      
+      formula <- as.formula(str_c('`', varFS, '`', '~', 
+                                  str_c('`', varsIndep, '`', collapse = ' + ')))
+      
+      assign(modelName, glm(formula, data = currentDataset, family = binomial, 
+                            weights = varPoids))
+      
+      #cat('Generated models: ', modelName, '\n')
+    }
+  } else {
+    
+    modelName <- str_c('model', region, year)
+    
+    # ensure the dependent variable is an integer
+    currentDataset <- currentDataset %>%
+    mutate(!!varDep := as.integer(.[[varDep]]))
+    
+    #cat('the dv is:', varDep)
+    #cat(str(varDep), '\n')
+    
+    formula <- as.formula(str_c('`', varDep, '`', '~', 
+                                  str_c('`', varsIndep, '`', collapse = ' + ')))
+      
+      assign(modelName, glm(formula, data = currentDataset, family = binomial, 
+                            weights = varPoids))
+      
+      #cat('Generated model: ', modelName, "\n")
+  }
+
+}
+
+```
+
+
+## ESCC 2019-2020
+### Modèle nord
+```{r North 2019-2020, echo=TRUE, warning=TRUE}
+formula(modelNorth2019to2020)
+summary(modelNorth2019to2020)
+```
+### Modèle sud
+```{r South 2019-2020,echo=TRUE, warning=TRUE}
+formula(modelSouth2019to2020)
+summary(modelSouth2019to2020)
+```
+
+## ESCC 2017-2018
+### Modèles nord
+```{r North 2017-2018, echo=TRUE, warning=TRUE}
+formula(`modelNorth2017to2018(FSCDVHF2)`)
+summary(`modelNorth2017to2018(FSCDVHF2)`)
+
+formula(`modelNorth2017to2018(FSCDVHFS)`)
+summary(`modelNorth2017to2018(FSCDVHFS)`)
+```
+### Modèles sud
+```{r South 2017-2018, echo=TRUE, warning=TRUE}
+formula(`modelSouth2017to2018(FSCDVHF2)`)
+summary(`modelSouth2017to2018(FSCDVHF2)`)
+
+formula(`modelSouth2017to2018(FSCDVHFS)`)
+summary(`modelSouth2017to2018(FSCDVHFS)`)
+```
+
+## ESCC 2015-2016
+### Modèle nord
+```{r North 2015-2016, echo=TRUE, warning=TRUE}
+formula(modelNorth2015to2016)
+summary(modelNorth2015to2016)
+```
+### Modèle sud
+```{r South 2015-2016, echo=TRUE, warning=TRUE}
+formula(modelSouth2015to2016)
+summary(modelSouth2015to2016)
+```
+
+## ESCC 2013-2014
+### Modèle nord
+N. B. (In)sécurité alimentaire non capturé pour les populations du nord.
+
+### Modèle sud
+```{r South 2013-2014, echo=TRUE, warning=TRUE}
+formula(modelSouth2013to2014)
+summary(modelSouth2013to2014)
+```
+
+## ESCC 2012
+### Modèle nord
+```{r North 2012, echo=TRUE, warning=TRUE}
+formula(modelNorth2012)
+summary(modelNorth2012)
+```
+### Modèle sud
+```{r South 2012, echo=TRUE, warning=TRUE}
+formula(modelSouth2012)
+summary(modelSouth2012)
+```
+
+## ESCC 2009-2010
+### Modèle nord
+```{r North 2009-2010, echo=TRUE, warning=TRUE}
+formula(modelNorth2009to2010)
+summary(modelNorth2009to2010)
+```
+### Modèle sud
+```{r South 2009-2010, echo=TRUE, warning=TRUE}
+formula(modelSouth2009to2010)
+summary(modelSouth2009to2010)
+```
+
+## ESCC 2007-2008
+### Modèles nord
+```{r North 2007-2008, echo=TRUE, warning=TRUE}
+formula(`modelNorth2007to2008(FSCDHFS)`)
+summary(`modelNorth2007to2008(FSCDHFS)`)
+
+formula(`modelNorth2007to2008(FSCDHFS2)`)
+summary(`modelNorth2007to2008(FSCDHFS2)`)
+```
+### Modèles sud
+```{r South 2007-2008, echo=TRUE, warning=TRUE}
+formula(`modelSouth2007to2008(FSCDHFS)`)
+summary(`modelSouth2007to2008(FSCDHFS)`)
+
+formula(`modelSouth2007to2008(FSCDHFS2)`)
+summary(`modelSouth2007to2008(FSCDHFS2)`)
+```
+
+## ESCC 2005
+### Modèle nord
+N. B. (In)sécurité alimentaire non capturé pour les populations du nord.
+
+### Modèle sud
+```{r South 2005, echo=TRUE, warning=TRUE}
+formula(modelSouth2005)
+summary(modelSouth2005)
+```
+
+## ESCC 2003
+### Modèle nord
+```{r North 2003, echo=TRUE, warning=TRUE}
+formula(modelNorth2003)
+summary(modelNorth2003)
+```
+### Modèle sud
+```{r South 2003, echo=TRUE, warning=TRUE}
+formula(modelSouth2003)
+summary(modelSouth2003)
+```
+
+## ESCC 2001
+### Modèle nord
+```{r North 2001, echo=TRUE, warning=TRUE}
+formula(modelNorth2001)
+summary(modelNorth2001)
+```
+### Modèle sud
+```{r South 2001, echo=TRUE, warning=TRUE}
+formula(modelSouth2001)
+summary(modelSouth2001)
+```
+
