@@ -2,7 +2,10 @@
 title: "Regressions logistiques"
 author: "Brittany Curry-Sharples"
 date: "2024-11-27"
-output: 
+output:
+  pdf_document:
+    toc: true
+    toc_depth: '6'
   html_document:
     code_folding: hide
     toc: true
@@ -56,6 +59,8 @@ for (file in originalFileNames) {
 ```{r filter data}
 
 variablesToRecode <- list(
+  id               = c('ADM_RNO1', 'ADM_RNO', 'ADME_RNO', 'ADMC_RNO', 
+                       'ADMA_RNO'),
   tailleMenage     = c('DHHDGHSZ', 'DHHGHSZ', 'DHHEGHSZ', 'DHHCGHSZ'),
   travaillerEmploi = c('MAC_010', 'GEN_08', 'GENE_08', 'GENC_08', 'GENA_08'),
   santePhysique    = c('GEN_005', 'GEN_01', 'GENE_01', 'GENC_01', 'GENA_01'),
@@ -66,14 +71,14 @@ variablesToRecode <- list(
   age              = c('DHHGAGE', 'DHHEGAGE', 'DHHCGAGE', 'DHHAGAGE'), 
   typeBuveur       = c('ALCDVTTM', 'ALCDTTM', 'ALCEDTYP', 'ALCCDTYP', 
                        'ALCADTYP'),      
-  activitePhys     = c('PAA_030', 'PACDLTI'), 
-  activiteSed      = c('SBE_005', 'SACDVTOT', 'SACDTOT', 'SACEDTOT', 'SACCDTOT',  
-                       'SACADTOT'),
-  satFinanciere    = c('SWL_015'),
-  satLogement      = c('SWL_040'),
-  relationGens     = c('SPS_050', 'SPS_10'),
-  santeNonSatis    = c('UCN_005', 'UCN_010'),
-  assuranceMed     = c('INS_005', 'INS_1'),
+  #activitePhys     = c('PAA_030', 'PACDLTI'), 
+  #activiteSed      = c('SBE_005', 'SACDVTOT', 'SACDTOT', 'SACEDTOT', 'SACCDTOT',  
+  #                     'SACADTOT'),
+  #satFinanciere    = c('SWL_015'),
+  #satLogement      = c('SWL_040'),
+  #relationGens     = c('SPS_050', 'SPS_10'),
+  #santeNonSatis    = c('UCN_005', 'UCN_010'),
+  #assuranceMed     = c('INS_005', 'INS_1'),
   revenuMenage     = c('INCDGHH', 'INCGHH', 'INCEGHH', 'INCCGHH', 'INCAGHH'),
   secAlimentaire   = c('FSCDVHF2', 'FSCDVHFS', 'FSCDHFS2', 'FSCDHFS', 
                        'FSCEDHFS', 'FINCF1', 'FINAF1'),
@@ -102,76 +107,801 @@ for (dataset in listNewFileNames) {
   assign(dataset, filteredDataset)      # keeps standardized name
 }
 
+# ensure ID values are unique
+for (dataset in listNewFileNames) {
+
+   currentDataset <- get(dataset)
+   cat('\n')
+   cat('Checking dataset: ', dataset, '\n')
+
+   for (element in variablesToRecode[['id']]) {
+
+     if (element %in% names(currentDataset)) {
+
+       check <- any(duplicated(currentDataset[[element]]))  # return TRUE if duplicates, false otherwise
+
+       cat('Is any element in', element, 'duplicated?: ', check, '\n')
+
+     }
+   }
+}
+
+```
+###### Append Survey Year to Variables
+``` {r}
+
+for (dataset in listNewFileNames) {
+  
+  currentDataset <- get(dataset)
+  
+    year <- dataset %>% 
+      str_extract('\\d{4}(to\\d{4})?')  # matches year or year range
+    
+    for (variable in names(currentDataset)) {
+      
+      originalVariableName <- variable
+      
+      newVariableName <- str_c(originalVariableName, '_', year)
+      
+      currentDataset <- currentDataset %>%
+        rename(!!newVariableName := !!originalVariableName)
+    }
+    assign(dataset, currentDataset)
+}
+
 ```
 ###### Recode Variables
 ```{r recode food (in)security variables}
 
-recode_rules <- list(
+recode_rules <- list( # cycles 2013-2014 and 2005 not recoded because there is no data for FS for Northern regions, 2003 and 2001 excluded because variables differ from other years (esp. fs, age, drinking status)
+
+    # food (in)security
   
-  FINAF1 = function(x) {
+  FSCDVHF2_2019to2020 = function(x) {
     case_when(
-      x == 1 ~ 1,               # secure
-      x == 2 ~ 0,               # insecure
-      x == 9 ~ NA_integer_,     # ensure NA is of type int  
-      is.na(x) ~ NA_integer_,   # handle NA values explicitly
-      TRUE ~ as.integer(x)    # force other values to be characters
+      x == 0 ~ 'Sécurité alimentaire',
+      x %in% c(1, 2, 3) ~ 'Insécurité alimentaire',
+      x %in% c(6, 9,                          # ensure NA is of type character
+               is.na(x)) ~ NA_character_,     # and handle NA values explicitly 
+      TRUE ~ as.character(x)                  # force other values to be char
     )
   },
   
-  FINCF1 = function(x) {
+   FSCDVHF2_2017to2018 = function(x) {
     case_when(
-      x == 1 ~ 1,
-      x == 2 ~ 0,
-      x %in% c(6, 9) ~ NA_integer_,
-      is.na(x) ~ NA_integer_,  
-      TRUE ~ as.integer(x)
+      x == 0 ~ 'Sécurité alimentaire',
+      x %in% c(1, 2, 3) ~ 'Insécurité alimentaire',
+      x %in% c(9, is.na(x)) ~ NA_character_,     
+      TRUE ~ as.character(x)                 
     )
   },
   
-  FSCDHFS2 = function(x) {
+  FSCDVHFS_2017to2018 = function(x) {
     case_when(
-      x == 0 ~ 1,
-      x %in% c(1, 2) ~ 0,
-      x %in% c(6, 9) ~ NA_integer_,
-      TRUE ~ as.integer(x)
+      x == 0 ~ 'Sécurité alimentaire',
+      x %in% c(1, 2) ~ 'Insécurité alimentaire',
+      x %in% c(9, is.na(x)) ~ NA_character_,     
+      TRUE ~ as.character(x)                 
     )
   },
   
-  FSCDHFS = function(x) {
+  FSCDVHFS_2015to2016 = function(x) {
     case_when(
-      x == 0 ~ 1,
-      x %in% c(1, 2, 3) ~ 0,
-      x == 9 ~ NA_integer_,
-      TRUE ~ as.integer(x)
+      x == 0 ~ 'Sécurité alimentaire',
+      x %in% c(1, 2) ~ 'Insécurité alimentaire',
+      x %in% c(6, 9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )    
+  },
+  
+    FSCDHFS2_2012 = function(x) {
+    case_when(
+      x == 0 ~ 'Sécurité alimentaire',
+      x %in% c(1, 2) ~ 'Insécurité alimentaire',
+      x %in% c(9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
     )
   },
   
-  FSCDVHFS = function(x) {
+  FSCDHFS2_2009to2010 = function(x) {
     case_when(
-      x == 0 ~ 1,
-      x %in% c(1, 2) ~ 0,
-      x %in% c(6, 9) ~ NA_integer_,
-      TRUE ~ as.integer(x)
+      x == 0 ~ 'Sécurité alimentaire',
+      x %in% c(1, 2) ~ 'Insécurité alimentaire',
+      x %in% c(6, 9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    ) 
+  },
+  
+  FSCDHFS2_2007to2008 = function(x) {
+    case_when(
+      x == 0 ~ 'Sécurité alimentaire',
+      x %in% c(1, 2) ~ 'Insécurité alimentaire',
+      x %in% c(9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
     )
   },
   
-  FSCDVHF2 = function(x) {
+  FSCDHFS_2007to2008 = function(x) {
     case_when(
-      x == 0 ~ 1,
-      x %in% c(1, 2, 3) ~ 0,
-      x %in% c(6, 9) ~ NA_integer_,
-      TRUE ~ as.integer(x)
+      x == 0 ~ 'Sécurité alimentaire',
+      x %in% c(1, 2, 3) ~ 'Insécurité alimentaire',
+      x %in% c(9, is.na(x)) ~ NA_character_,     
+      TRUE ~ as.character(x)                 
     )
   },
   
-  FSCEDHFS = function(x) {
+  # FINCF1_2003 = function(x) {
+  #   case_when(
+  #     x == 2 ~ 'Sécurité alimentaire',
+  #     x == 1 ~ 'Insécurité alimentaire',
+  #     x %in% c(6, 9, is.na(x)) ~ NA_character_,     
+  #     TRUE ~ as.character(x)                 
+  #   )
+  # },
+  
+  # household size
+  
+  DHHDGHSZ_2019to2020 = function(x) {
     case_when(
-      x == 0 ~ 1,
-      x %in% c(1, 2, 3) ~ 0,
-      x %in% c(6, 9) ~ NA_integer_,
-      TRUE ~ as.integer(x)
+      x == 1 ~ 'Vit seul (taille du ménage=1)',
+      x == 2 ~ 'Taille du ménage 2 ou plus',
+      x %in% c(9, is.na(x)) ~ NA_character_,
+      TRUE ~ as.character(x)
     )
+  },  
+    
+  DHHDGHSZ_2017to2018 = function(x) {
+    case_when(
+      x == 1 ~ 'Vit seul (taille du ménage=1)',
+      x %in% c(2, 3, 4, 5) ~ 'Taille du ménage 2 ou plus',
+      x %in% c(9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )
+  }, 
+  
+  DHHDGHSZ_2015to2016 = function(x) {
+    case_when(
+      x == 1 ~ 'Vit seul (taille du ménage=1)',
+      x %in% c(2, 3, 4, 5) ~ 'Taille du ménage 2 ou plus',
+      x %in% c(9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )   
+  },
+  
+  DHHGHSZ_2012 = function(x) {
+    case_when(
+      x == 1 ~ 'Vit seul (taille du ménage=1)',
+      x %in% c(2, 3, 4, 5) ~ 'Taille du ménage 2 ou plus',
+      x %in% c(9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )
+  },
+  
+  DHHGHSZ_2009to2010 = function(x) {
+    case_when(
+      x == 1 ~ 'Vit seul (taille du ménage=1)',
+      x %in% c(2, 3, 4, 5) ~ 'Taille du ménage 2 ou plus',
+      x %in% c(9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )
+  },
+  
+  DHHGHSZ_2007to2008 = function(x) {
+    case_when(
+      x == 1 ~ 'Vit seul (taille du ménage=1)',
+      x %in% c(2, 3, 4, 5) ~ 'Taille du ménage 2 ou plus',
+      x %in% c(9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )
+  },
+  
+  # DHHCGHSZ_2003 = function(x) {
+  #   case_when(
+  #     x == 1 ~ 'Vit seul (taille du ménage=1)',
+  #     x %in% c(2, 3, 4, 5) ~ 'Taille du ménage 2 ou plus',
+  #     x == is.na(x) ~ NA_character_, 
+  #     TRUE ~ as.character(x)
+  #   )
+  # },
+  
+  # employment status
+  
+  MAC_010_2019to2020 = function(x) {
+    case_when(
+      x == 1 ~ 'Oui',
+      x == 2 ~ 'Non', 
+      x %in% c(6, 7, 8, 9, is.na(x)) ~ NA_character_,
+      TRUE ~ as.character(x)
+    )
+  },
+  
+  MAC_010_2017to2018 = function(x) {
+    case_when(
+      x == 1 ~ 'Oui',
+      x == 2 ~ 'Non', 
+      x %in% c(6, 7, 8, 9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )
+  },
+  
+  MAC_010_2015to2016 = function(x) {
+    case_when(
+      x == 1 ~ 'Oui',
+      x == 2 ~ 'Non', 
+      x %in% c(6, 7, 8, 9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )
+  },
+  
+  GEN_08_2012 = function(x) {
+    case_when(
+      x == 1 ~ 'Oui',
+      x == 2 ~ 'Non', 
+      x %in% c(6, 7, 8, 9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )
+  },
+  
+  GEN_08_2009to2010 = function(x) {
+    case_when(
+      x == 1 ~ 'Oui',
+      x == 2 ~ 'Non', 
+      x %in% c(6, 7, 8, 9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )
+  },
+  
+  GEN_08_2007to2008 = function(x) {
+    case_when(
+      x == 1 ~ 'Oui',
+      x == 2 ~ 'Non', 
+      x %in% c(6, 7, 8, 9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )
+  },
+  
+  # GENC_08_2003 = function(x) {
+  #   case_when(
+  #     x == 1 ~ 'Oui',
+  #     x == 2 ~ 'Non', 
+  #     x %in% c(6, 7, 8, 9, is.na(x)) ~ NA_character_, 
+  #     TRUE ~ as.character(x)
+  #   )
+  # },
+  
+  # Perceived physical health 
+
+  GEN_005_2019to2020 = function(x) {
+    case_when( 
+      x == 1 ~ 'Excellente', 
+      x == 2 ~ 'Très bonne', 
+      x == 3 ~ 'Bonne', 
+      x == 4 ~ 'Passable', 
+      x == 5 ~ 'Mauvaise',
+      x %in% c(7, 8, is.na(x)) ~ NA_character_,
+      TRUE ~ as.character(x)
+    )
+  },
+  
+  GEN_005_2017to2018 = function(x) {
+    case_when(
+      x == 1 ~ 'Excellente',
+      x == 2 ~ 'Très bonne', 
+      x == 3 ~ 'Bonne', 
+      x == 4 ~ 'Passable',
+      x == 5 ~ 'Mauvaise',
+      x %in% c(7, 8, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )    
+  },
+    
+  GEN_005_2015to2016 = function(x) {
+    case_when(
+      x == 1 ~ 'Excellente',
+      x == 2 ~ 'Très bonne', 
+      x == 3 ~ 'Bonne', 
+      x == 4 ~ 'Passable',
+      x == 5 ~ 'Mauvaise',
+      x %in% c(7, 8, 9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )    
+  },
+  
+  GEN_01_2012 = function(x) {
+    case_when(
+      x == 1 ~ 'Excellente',
+      x == 2 ~ 'Très bonne', 
+      x == 3 ~ 'Bonne', 
+      x == 4 ~ 'Passable',
+      x == 5 ~ 'Mauvaise',
+      x %in% c(7, 8, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )  
+  },
+  
+  GEN_01_2009to2010 = function(x) {
+    case_when(
+      x == 1 ~ 'Excellente',
+      x == 2 ~ 'Très bonne', 
+      x == 3 ~ 'Bonne', 
+      x == 4 ~ 'Passable',
+      x == 5 ~ 'Mauvaise',
+      x %in% c(7, 8, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )  
+  },
+  
+  GEN_01_2007to2008 = function(x) {
+    case_when(
+      x == 1 ~ 'Excellente',
+      x == 2 ~ 'Très bonne', 
+      x == 3 ~ 'Bonne', 
+      x == 4 ~ 'Passable',
+      x == 5 ~ 'Mauvaise',
+      x %in% c(7, 8, 9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )   
+  },
+  
+  # GENC_01_2003 = function(x) {
+  #   case_when(
+  #     x == 1 ~ 'Excellente',
+  #     x == 2 ~ 'Très bonne', 
+  #     x == 3 ~ 'Bonne', 
+  #     x == 4 ~ 'Passable',
+  #     x == 5 ~ 'Mauvaise',
+  #     x %in% c(7, 8, is.na(x)) ~ NA_character_, 
+  #     TRUE ~ as.character(x)
+  #   ) 
+  # },
+  
+  # Perceived mental health
+
+  GEN_015_2019to2020 = function(x) {
+    case_when(
+      x == 1 ~ 'Excellente', 
+      x == 2 ~ 'Très bonne', 
+      x == 3 ~ 'Bonne', 
+      x == 4 ~ 'Passable',
+      x == 5 ~ 'Mauvaise',
+      x %in% c(7, 8, 9, is.na(x)) ~ NA_character_,
+     TRUE ~ as.character(x)
+    )
+  },
+  
+  GEN_015_2017to2018 = function(x) {
+    case_when(
+      x == 1 ~ 'Excellente',
+      x == 2 ~ 'Très bonne', 
+      x == 3 ~ 'Bonne', 
+      x == 4 ~ 'Passable',
+      x == 5 ~ 'Mauvaise',
+      x %in% c(7, 8, 9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )    
+  },
+  
+  GEN_015_2015to2016 = function(x) {
+    case_when(
+      x == 1 ~ 'Excellente',
+      x == 2 ~ 'Très bonne', 
+      x == 3 ~ 'Bonne', 
+      x == 4 ~ 'Passable',
+      x == 5 ~ 'Mauvaise',
+      x %in% c(7, 8, 9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )    
+  },
+  
+  GEN_02B_2012 = function(x) {
+    case_when(
+      x == 1 ~ 'Excellente',
+      x == 2 ~ 'Très bonne', 
+      x == 3 ~ 'Bonne', 
+      x == 4 ~ 'Passable',
+      x == 5 ~ 'Mauvaise',
+      x %in% c(7, 8, 9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )  
+  },
+  
+  GEN_02B_2009to2010 = function(x) {
+    case_when(
+      x == 1 ~ 'Excellente',
+      x == 2 ~ 'Très bonne', 
+      x == 3 ~ 'Bonne', 
+      x == 4 ~ 'Passable',
+      x == 5 ~ 'Mauvaise',
+      x %in% c(7, 8, 9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )  
+  },
+  
+  GEN_02B_2007to2008 = function(x) {
+    case_when(
+      x == 1 ~ 'Excellente',
+      x == 2 ~ 'Très bonne', 
+      x == 3 ~ 'Bonne', 
+      x == 4 ~ 'Passable',
+      x == 5 ~ 'Mauvaise',
+      x %in% c(7, 8, 9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )  
+  },
+  
+  # GENC_02B_2003 = function(x) {
+  #   case_when(
+  #     x == 1 ~ 'Excellente',
+  #     x == 2 ~ 'Très bonne', 
+  #     x == 3 ~ 'Bonne', 
+  #     x == 4 ~ 'Passable',
+  #     x == 5 ~ 'Mauvaise',
+  #     x %in% c(7, 8, 9, is.na(x)) ~ NA_character_, 
+  #     TRUE ~ as.character(x)
+  #   ) 
+  # },
+  
+  # Community belonging
+
+  GEN_030_2019to2020 = function(x) {
+    case_when(
+      x == 1 ~ 'Très fort',
+      x == 2 ~ 'Plutôt fort', 
+      x == 3 ~ 'Plutôt faible', 
+      x == 4 ~ 'Très faible', 
+      x %in% c(7, 8, 9, is.na(x)) ~ NA_character_,
+      TRUE ~ as.character(x)
+    )
+  },
+  
+  GEN_030_2017to2018 = function(x) {
+    case_when(
+      x == 1 ~ 'Très fort',
+      x == 2 ~ 'Plutôt fort', 
+      x == 3 ~ 'Plutôt faible', 
+      x == 4 ~ 'Très faible',
+      x %in% c(7, 8, 9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )    
+  },
+  
+  GEN_030_2015to2016 = function(x) {
+    case_when(
+      x == 1 ~ 'Très fort',
+      x == 2 ~ 'Plutôt fort', 
+      x == 3 ~ 'Plutôt faible', 
+      x == 4 ~ 'Très faible',
+      x %in% c(7, 8, 9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )    
+  },
+  
+  GEN_10_2012 = function(x) {
+    case_when(
+      x == 1 ~ 'Très fort',
+      x == 2 ~ 'Plutôt fort', 
+      x == 3 ~ 'Plutôt faible', 
+      x == 4 ~ 'Très faible',
+      x %in% c(7, 8, 9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    ) 
+  },
+  
+  GEN_10_2009to2010 = function(x) {
+    case_when(
+      x == 1 ~ 'Très fort',
+      x == 2 ~ 'Plutôt fort', 
+      x == 3 ~ 'Plutôt faible', 
+      x == 4 ~ 'Très faible',
+      x %in% c(7, 8, 9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    ) 
+  },
+  
+  GEN_10_2007to2008 = function(x) {
+    case_when(
+      x == 1 ~ 'Très fort',
+      x == 2 ~ 'Plutôt fort', 
+      x == 3 ~ 'Plutôt faible', 
+      x == 4 ~ 'Très faible',
+      x %in% c(7, 8, 9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    ) 
+  },
+  
+  # GENC_10_2003 = function(x) {
+  #   case_when(
+  #     x == 1 ~ 'Très fort',
+  #     x == 2 ~ 'Plutôt fort', 
+  #     x == 3 ~ 'Plutôt faible', 
+  #     x == 4 ~ 'Très faible',
+  #     x %in% c(7, 8, 9, is.na(x)) ~ NA_character_, 
+  #     TRUE ~ as.character(x)
+  #   ) 
+  # },
+  
+  # Smoking status
+
+  SMK_005_2019to2020 = function(x) {
+    case_when(
+      x == 1 ~ 'Tous les jours',
+      x == 2 ~ 'À l’occasion',
+      x == 3 ~ 'Jamais',
+      x %in% c(7, 8, 9, is.na(x)) ~ NA_character_,
+      TRUE ~ as.character(x)
+    )
+  },
+  
+  SMK_005_2017to2018 = function(x) {
+    case_when(
+      x == 1 ~ 'Tous les jours',
+      x == 2 ~ 'À l’occasion', 
+      x == 3 ~ 'Jamais', 
+      x %in% c(7, 8, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )    
+  }, 
+  
+  SMK_005_2015to2016 = function(x) {
+    case_when(
+      x == 1 ~ 'Tous les jours',
+      x == 2 ~ 'À l’occasion', 
+      x == 3 ~ 'Jamais', 
+      x %in% c(7, 8, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )    
+  },
+  
+  SMK_202_2012 = function(x) {
+    case_when(
+      x == 1 ~ 'Tous les jours',
+      x == 2 ~ 'À l’occasion', 
+      x == 3 ~ 'Jamais', 
+      x %in% c(7, 8, 9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )  
+  },
+  
+  SMK_202_2009to2010 = function(x) {
+    case_when(
+      x == 1 ~ 'Tous les jours',
+      x == 2 ~ 'À l’occasion', 
+      x == 3 ~ 'Jamais', 
+      x %in% c(7, 8, 9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )  
+  },
+  
+  SMK_202_2007to2008 = function(x) {
+    case_when(
+      x == 1 ~ 'Tous les jours',
+      x == 2 ~ 'À l’occasion', 
+      x == 3 ~ 'Jamais', 
+      x %in% c(7, 8, 9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    ) 
+  },
+  
+  # SMKC_202_2003 = function(x) {
+  #   case_when(
+  #     x == 1 ~ 'Tous les jours',
+  #     x == 2 ~ 'À l’occasion', 
+  #     x == 3 ~ 'Jamais', 
+  #     x %in% c(7, 8, 9, is.na(x)) ~ NA_character_, 
+  #     TRUE ~ as.character(x)
+  #   ) 
+  # },
+  
+  # Age group
+
+  DHHGAGE_2019to2020 = function(x) {
+    case_when(
+      x == 1 ~ '12 à 17 ans', 
+      x == 2 ~ '18 à 34 ans', 
+      x == 3 ~ '35 à 49 ans',
+      x == 4 ~ '50 à 64 ans',
+      x == 5 ~ '65 ans et plus',
+      x == is.na(x) ~ NA_character_,
+      TRUE ~ as.character(x)
+    )
+  },
+  
+  DHHGAGE_2017to2018 = function(x) {
+    case_when(
+      x %in% c(1, 2) ~ '12 à 17 ans',
+      x %in% c(3, 4, 5, 6) ~ '18 à 34 ans', 
+      x %in% c(7, 8, 9) ~ '35 à 49 ans',
+      x %in% c(10, 11, 12) ~ '50 à 64 ans',
+      x %in% c(13, 14, 15, 16) ~ '65 ans et plus',
+      x == is.na(x) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )    
+  },
+  
+  DHHGAGE_2015to2016 = function(x) {
+    case_when(
+      x %in% c(1, 2) ~ '12 à 17 ans',
+      x %in% c(3, 4, 5, 6) ~ '18 à 34 ans', 
+      x %in% c(7, 8, 9) ~ '35 à 49 ans',
+      x %in% c(10, 11, 12) ~ '50 à 64 ans',
+      x %in% c(13, 14, 15, 16) ~ '65 ans et plus',
+      x == is.na(x) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )  
+  },
+  
+  DHHGAGE_2012 = function(x) {
+    case_when(
+      x %in% c(1, 2) ~ '12 à 17 ans',
+      x %in% c(3, 4, 5, 6) ~ '18 à 34 ans', 
+      x %in% c(7, 8, 9) ~ '35 à 49 ans',
+      x %in% c(10, 11, 12) ~ '50 à 64 ans',
+      x %in% c(13, 14, 15, 16) ~ '65 ans et plus',
+      x == is.na(x) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )  
+  },
+  
+  DHHGAGE_2009to2010 = function(x) {
+    case_when(
+      x %in% c(1, 2) ~ '12 à 17 ans',
+      x %in% c(3, 4, 5, 6) ~ '18 à 34 ans', 
+      x %in% c(7, 8, 9) ~ '35 à 49 ans',
+      x %in% c(10, 11, 12) ~ '50 à 64 ans',
+      x %in% c(13, 14, 15, 16) ~ '65 ans et plus',
+      x == is.na(x) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )  
+  },
+  
+  DHHGAGE_2007to2008 = function(x) {
+    case_when(
+      x %in% c(1, 2) ~ '12 à 17 ans',
+      x %in% c(3, 4, 5, 6) ~ '18 à 34 ans', 
+      x %in% c(7, 8, 9) ~ '35 à 49 ans',
+      x %in% c(10, 11, 12) ~ '50 à 64 ans',
+      x %in% c(13, 14, 15, 16) ~ '65 ans et plus',
+      x == is.na(x) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )  
+  },
+  
+  # Alcohol consumption status
+
+  ALCDVTTM_2019to2020 = function(x) {
+    case_when(
+      x == 1 ~ 'Buveur régulier',
+      x == 2 ~ 'Buveur occasionnel',
+      x == 3 ~ 'N’a pas bu au cours des 12 derniers mois', 
+      x %in% c(9, is.na(x)) ~ NA_character_,
+      TRUE ~ as.character(x)
+    )
+  },
+  
+    ALCDVTTM_2017to2018 = function(x) {
+    case_when(
+      x == 1 ~ 'Buveur régulier',
+      x == 2 ~ 'Buveur occasionnel', 
+      x == 3 ~ 'N’a pas bu au cours des 12 derniers mois', 
+      x %in% c(9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )    
+  },
+  
+    ALCDVTTM_2015to2016 = function(x) {
+    case_when(
+      x == 1 ~ 'Buveur régulier',
+      x == 2 ~ 'Buveur occasionnel', 
+      x == 3 ~ 'N’a pas bu au cours des 12 derniers mois', 
+      x %in% c(9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )    
+  },
+  
+  ALCDTTM_2012 = function(x) {
+    case_when(
+      x == 1 ~ 'Buveur régulier',
+      x == 2 ~ 'Buveur occasionnel', 
+      x == 3 ~ 'N’a pas bu au cours des 12 derniers mois', 
+      x %in% c(9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    ) 
+  },
+  
+  ALCDTTM_2009to2010 = function(x) {
+    case_when(
+      x == 1 ~ 'Buveur régulier',
+      x == 2 ~ 'Buveur occasionnel', 
+      x == 3 ~ 'N’a pas bu au cours des 12 derniers mois', 
+      x %in% c(9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    ) 
+  },
+  
+  ALCDTTM_2007to2008 = function(x) {
+    case_when(
+      x == 1 ~ 'Buveur régulier',
+      x == 2 ~ 'Buveur occasionnel', 
+      x == 3 ~ 'N’a pas bu au cours des 12 derniers mois', 
+      x %in% c(9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    ) 
+  },
+  
+  # Household income
+
+  INCDGHH_2019to2020 = function(x) {
+    case_when(
+      x == 1 ~ 'Aucun revenu ou moins de 20 000 $',
+      x == 2 ~ 'De 20 000 $ à 39 999 $',
+      x == 3 ~ 'De 40 000 $ à 59 999 $',
+      x == 4 ~ 'De 60 000 $ à 79 999 $',
+      x == 5 ~ '80 000 $ et plus',
+      x %in% c(9, is.na(x)) ~ NA_character_,
+      TRUE ~ as.character(x)
+    )
+  },
+  
+  INCDGHH_2017to2018 = function(x) {
+    case_when(
+      x == 1 ~ 'Aucun revenu ou moins de 20 000 $',
+      x == 2 ~ 'De 20 000 $ à 39 999 $', 
+      x == 3 ~ 'De 40 000 $ à 59 999 $', 
+      x == 4 ~ 'De 60 000 $ à 79 999 $',
+      x == 5 ~ '80 000 $ et plus',
+      x %in% c(9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )    
+  },
+  
+    INCDGHH_2015to2016 = function(x) {
+    case_when(
+      x == 1 ~ 'Aucun revenu ou moins de 20 000 $',
+      x == 2 ~ 'De 20 000 $ à 39 999 $', 
+      x == 3 ~ 'De 40 000 $ à 59 999 $', 
+      x == 4 ~ 'De 60 000 $ à 79 999 $',
+      x == 5 ~ '80 000 $ et plus',
+      x %in% c(9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )    
+  }, 
+  
+  INCGHH_2012 = function(x) {
+    case_when(
+      x == 1 ~ 'Aucun revenu ou moins de 20 000 $',
+      x == 2 ~ 'De 20 000 $ à 39 999 $', 
+      x == 3 ~ 'De 40 000 $ à 59 999 $', 
+      x == 4 ~ 'De 60 000 $ à 79 999 $',
+      x == 5 ~ '80 000 $ et plus',
+      x %in% c(9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    )   
+  },
+  
+  INCGHH_2009to2010 = function(x) {
+    case_when(
+      x == 1 ~ 'Aucun revenu ou moins de 20 000 $',
+      x == 2 ~ 'De 20 000 $ à 39 999 $', 
+      x == 3 ~ 'De 40 000 $ à 59 999 $', 
+      x == 4 ~ 'De 60 000 $ à 79 999 $',
+      x == 5 ~ '80 000 $ et plus',
+      x %in% c(9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    ) 
+  },
+  
+  INCGHH_2007to2008 = function(x) {
+    case_when(
+      x == 1 ~ 'Aucun revenu ou moins de 20 000 $',
+      x == 2 ~ 'De 20 000 $ à 39 999 $', 
+      x == 3 ~ 'De 40 000 $ à 59 999 $', 
+      x == 4 ~ 'De 60 000 $ à 79 999 $',
+      x == 5 ~ '80 000 $ et plus',
+      x %in% c(9, is.na(x)) ~ NA_character_, 
+      TRUE ~ as.character(x)
+    ) 
   }
+  
 )
 
  # Identify the food security variables (secAlimentaire)
@@ -182,17 +912,8 @@ for (dataset in listNewFileNames) {
   
   currentDataset <- get(dataset)
   #cat("The current dataset is: ", dataset, "\n")
-  
-  # Identify which food security variable is present in the data set
-  foodSecurityVariables <- allFoodSecurityVariables[allFoodSecurityVariables 
-                                                    %in%
-                                                      colnames(currentDataset)]
     
-    #cat("Food security variable found: ")
-    #print(foodSecurityVariables)
-    #cat("\n")
-    
-    for (variable in foodSecurityVariables) { # iterate through each FS var (if multiple)
+    for (variable in names(recode_rules)) { # iterate through each var to be recoded
       
       if (variable %in% names(currentDataset)) {
         
@@ -224,15 +945,28 @@ for (dataset in listNewFileNames) {
   
     for (variable in colnames(currentDataset)) {
       
-      originalVariableName <- variable # save original variable name
+      originalVariableName <- variable %>%  # save original variable name
+        str_remove('_\\d{4}(to\\d{4})?')
+      
+      #cat('[debug]: Original column:', variable, '-> After str_remove:', 
+          #originalVariableName, '\n')
+      
+      #cat('[debug]: Columns in dataset:', colnames(currentDataset), '\n')
       
       for (variableType in names(variablesToRecode)) {
+        
+        #cat('[debug]: Current variableType: ', variableType, '\n')
+        
+         #cat('[debug]: checking if ', variable, 'is in variablesToRecode', '\n')
+        
         if (originalVariableName %in% variablesToRecode[[variableType]]) {
           
           newVariableName <- str_c(variableType, '(', originalVariableName, ')')
           
+          #cat('[debug]: New variable name: ', newVariableName, '\n', '\n')
+          
           currentDataset <- currentDataset %>% 
-            rename(!!newVariableName := !!originalVariableName)
+            rename(!!newVariableName := !!variable) # use `variable` here bc in dataset the years are still appended
           
           # cat(variable, " ",  variableType, " ", newVariableName, "\n")
           
@@ -242,6 +976,109 @@ for (dataset in listNewFileNames) {
   assign(dataset, currentDataset)
 }
 ```
+###### Reshape Data
+```{r reshape data}
+
+for (dataset in listNewFileNames) {
+  
+  currentDataset <- get(dataset)
+  
+  varId <- names(currentDataset) %>% 
+    str_extract('^id\\([A-Za-z0-9_]+\\)') %>% 
+    {names(currentDataset)[which(!is.na(.))]} %>%
+    unique()
+    
+  #print(varId)
+
+  varPoids <- names(currentDataset) %>% 
+    str_extract('^poids\\([A-Za-z0-9_]+\\)') %>% 
+    {names(currentDataset)[which(!is.na(.))]} %>%
+    unique()
+  
+  #print(varPoids)
+  
+  varDep <- names(currentDataset) %>% 
+    str_extract('^secAlimentaire\\([A-Za-z0-9_]+\\)') %>% 
+    {names(currentDataset)[which(!is.na(.))]} %>%
+    unique()
+  
+  #print(varDep)
+
+  dataReshaped <- currentDataset %>%
+    mutate(across(everything(), ~ if_else(is.na(.), 'NA', as.character(.)))) %>%   # replace NA values with the character 'NA' and cast all other values into characters bc didn't recode for years 2001-2012
+    pivot_longer(cols = -all_of(c(varId, varPoids, varDep)),
+                 names_to = 'variable',
+                 values_to = 'values'
+                 ) %>%
+    mutate(
+      across(starts_with('secAlimentaire'), ~ case_when(
+        . == 'Insécurité alimentaire' ~ '0',
+        . == 'Sécurité alimentaire' ~ '1',
+        . == 'NA' ~ 'NA',
+        is.na(.) ~ NA_character_, # keep NA
+        TRUE ~ . # in case there's an unexpected value, keep the original (important for years not recoded)
+        )),
+      newColumn = str_c(variable, values, sep = '_'),
+      values = if_else(values == 'NA', 'NA', '1')# Only replace non-NA values with "1"
+      ) %>%
+    pivot_wider(id_cols = c(all_of(varId), all_of(varPoids), all_of(varDep)),
+                names_from = newColumn,
+                values_from = values, values_fill = '0') %>%
+    select(order(names(.))) %>%   # Alphabetical order
+    select(all_of(varId), all_of(varPoids), all_of(varDep), everything()) %>%    # Order columns alphabetically and move 'id' to the front
+    select(-ends_with('_NA')) # remove all NA columns
+  
+  assign(dataset, dataReshaped)
+}
+
+```
+###### Delete Rows with NA Values for Food (In)Security
+
+```{r filter NA FS values out}
+
+for (dataset in listNewFileNames) {
+  
+  currentDataset <- get(dataset)
+  
+  dataFiltered <- currentDataset %>% 
+    filter(if_any(starts_with('secAlimentaire'), ~ . != 'NA'))
+  
+  assign(dataset, dataFiltered)
+}
+
+```
+
+###### Ensure Datasets are Numeric Type
+```{r numeric type}
+
+for (dataset in listNewFileNames) {
+  
+  currentDataset <- get(dataset)
+  
+  dataNumeric <- currentDataset %>% 
+    mutate(across(everything(), ~ case_when(
+       . == 'NA' ~ NA_real_, # replace 'NA' string with numeric NA 
+        is.na(.) ~ NA_real_, # if any NA values cast as numeric
+        TRUE ~ as.numeric(.) # else cast to numeric
+    )))
+  
+    assign(dataset, dataNumeric)
+}
+```
+###### Export Cleaned Datasets
+```{r export clean data}
+for (dataset in listNewFileNames) {
+  
+  currentDataset <- get(dataset)
+  
+  folderPath <- file.path(getwd(), 'cleanData') 
+  
+  filename <- file.path(folderPath, str_c(dataset, '.csv'))
+  
+  write.csv(currentDataset, file = filename, row.names = FALSE)
+}
+```
+
 ###### Logistic Regressions
 ```{r logistic regressions, warning=TRUE}
 
@@ -254,12 +1091,15 @@ for (dataset in listNewFileNames) {
   region         <- datasetName %>% 
     str_extract('(North|South)')
   
-  #cat("\n", "\n")
+  cat("\n", "\n")
   cat("Logistic regression for ", dataset, "\n")
-  #cat("----------------------------------------------------", "\n")
-  #cat("\n")
-
-  varDep    <- c()
+  cat("----------------------------------------------------", "\n")
+  cat("\n")
+  
+  if (year == '2015to2016' | year == '2017to2018' | year == '2019to2020') {
+    
+    varId <- c()
+     varDep    <- c()
   varsIndep <- c()
   varPoids     <- c()
   
@@ -271,9 +1111,12 @@ for (dataset in listNewFileNames) {
     } else if (str_detect(variable, '^poids')) {
       varPoids <- c(varPoids, currentDataset[[variable]])
       
+    } else if (str_detect(variable, '^id')) {
+      varId <- c(varId, currentDataset[[variable]]) # make sure ID is not included in model
+      
     } else if (length(unique(currentDataset[[variable]])) > 1) { # ensure variation
       varsIndep <- c(varsIndep, variable)
-    }
+    } 
   }
   #cat("The dependent variable(s) is(are):")
   #cat(varDep, "\n", "\n")
@@ -325,8 +1168,8 @@ for (dataset in listNewFileNames) {
                             weights = varPoids))
       
       #cat('Generated model: ', modelName, "\n")
+    }
   }
-
 }
 
 ```
@@ -335,11 +1178,13 @@ for (dataset in listNewFileNames) {
 ## ESCC 2019-2020
 ### Modèle nord
 ```{r North 2019-2020, echo=TRUE, warning=TRUE}
+head(dataNorth2019to2020)
 formula(modelNorth2019to2020)
 summary(modelNorth2019to2020)
 ```
 ### Modèle sud
 ```{r South 2019-2020,echo=TRUE, warning=TRUE}
+head(dataSouth2019to2020)
 formula(modelSouth2019to2020)
 summary(modelSouth2019to2020)
 ```
@@ -380,50 +1225,50 @@ N. B. (In)sécurité alimentaire non capturé pour les populations du nord.
 
 ### Modèle sud
 ```{r South 2013-2014, echo=TRUE, warning=TRUE}
-formula(modelSouth2013to2014)
-summary(modelSouth2013to2014)
+#formula(modelSouth2013to2014)
+#summary(modelSouth2013to2014)
 ```
 
 ## ESCC 2012
 ### Modèle nord
 ```{r North 2012, echo=TRUE, warning=TRUE}
-formula(modelNorth2012)
-summary(modelNorth2012)
+#formula(modelNorth2012)
+#summary(modelNorth2012)
 ```
 ### Modèle sud
 ```{r South 2012, echo=TRUE, warning=TRUE}
-formula(modelSouth2012)
-summary(modelSouth2012)
+#formula(modelSouth2012)
+#summary(modelSouth2012)
 ```
 
 ## ESCC 2009-2010
 ### Modèle nord
 ```{r North 2009-2010, echo=TRUE, warning=TRUE}
-formula(modelNorth2009to2010)
-summary(modelNorth2009to2010)
+#formula(modelNorth2009to2010)
+#summary(modelNorth2009to2010)
 ```
 ### Modèle sud
 ```{r South 2009-2010, echo=TRUE, warning=TRUE}
-formula(modelSouth2009to2010)
-summary(modelSouth2009to2010)
+#formula(modelSouth2009to2010)
+#summary(modelSouth2009to2010)
 ```
 
 ## ESCC 2007-2008
 ### Modèles nord
 ```{r North 2007-2008, echo=TRUE, warning=TRUE}
-formula(`modelNorth2007to2008(FSCDHFS)`)
-summary(`modelNorth2007to2008(FSCDHFS)`)
+#formula(`modelNorth2007to2008(FSCDHFS)`)
+#summary(`modelNorth2007to2008(FSCDHFS)`)
 
-formula(`modelNorth2007to2008(FSCDHFS2)`)
-summary(`modelNorth2007to2008(FSCDHFS2)`)
+#formula(`modelNorth2007to2008(FSCDHFS2)`)
+#summary(`modelNorth2007to2008(FSCDHFS2)`)
 ```
 ### Modèles sud
 ```{r South 2007-2008, echo=TRUE, warning=TRUE}
-formula(`modelSouth2007to2008(FSCDHFS)`)
-summary(`modelSouth2007to2008(FSCDHFS)`)
+#formula(`modelSouth2007to2008(FSCDHFS)`)
+#summary(`modelSouth2007to2008(FSCDHFS)`)
 
-formula(`modelSouth2007to2008(FSCDHFS2)`)
-summary(`modelSouth2007to2008(FSCDHFS2)`)
+#formula(`modelSouth2007to2008(FSCDHFS2)`)
+#summary(`modelSouth2007to2008(FSCDHFS2)`)
 ```
 
 ## ESCC 2005
@@ -432,31 +1277,31 @@ N. B. (In)sécurité alimentaire non capturé pour les populations du nord.
 
 ### Modèle sud
 ```{r South 2005, echo=TRUE, warning=TRUE}
-formula(modelSouth2005)
-summary(modelSouth2005)
+#formula(modelSouth2005)
+#summary(modelSouth2005)
 ```
 
 ## ESCC 2003
 ### Modèle nord
 ```{r North 2003, echo=TRUE, warning=TRUE}
-formula(modelNorth2003)
-summary(modelNorth2003)
+#formula(modelNorth2003)
+#summary(modelNorth2003)
 ```
 ### Modèle sud
 ```{r South 2003, echo=TRUE, warning=TRUE}
-formula(modelSouth2003)
-summary(modelSouth2003)
+#formula(modelSouth2003)
+#summary(modelSouth2003)
 ```
 
 ## ESCC 2001
 ### Modèle nord
 ```{r North 2001, echo=TRUE, warning=TRUE}
-formula(modelNorth2001)
-summary(modelNorth2001)
+#formula(modelNorth2001)
+#summary(modelNorth2001)
 ```
 ### Modèle sud
 ```{r South 2001, echo=TRUE, warning=TRUE}
-formula(modelSouth2001)
-summary(modelSouth2001)
+#formula(modelSouth2001)
+#summary(modelSouth2001)
 ```
 
